@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проверка контрагентов</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #ffffff; --surface: #f5f5f7; --text: #1d1d1f; --muted: #6e6e73; --hairline: #e5e5ea;
+  --accent: #0B5ED9; --accent-soft: rgba(11,94,217,.08);
+  --verified: #1f9d55; --pending: #d98a0b; --critical: #d93025;
+  --radius: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #000000; --surface: #1c1c1e; --text: #f5f5f7; --muted: #98989d; --hairline: #2c2c2e;
+    --accent: #3d8bfd; --accent-soft: rgba(61,139,253,.14);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 400 15px/1.5 Inter, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Шапка */
+header {
+  display: flex; align-items: center; gap: 16px; justify-content: space-between;
+  padding: 14px 24px; border-bottom: 1px solid var(--hairline);
+  position: sticky; top: 0; background: var(--bg); z-index: 5;
+}
+header .brand { font-weight: 600; letter-spacing: -.01em; }
+header .brand span { color: var(--muted); font-weight: 400; }
+.status-line { color: var(--muted); font-size: 13px; display: flex; gap: 14px; align-items: center; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.ok { background: var(--verified); } .dot.warn { background: var(--pending); } .dot.bad { background: var(--critical); }
+.dot.run { background: var(--accent); animation: pulse 1.2s infinite ease-in-out; }
+@keyframes pulse { 50% { opacity: .3; } }
+
+/* Раскладка */
+.layout { display: grid; grid-template-columns: 320px 1fr; min-height: calc(100vh - 53px); }
+aside { border-right: 1px solid var(--hairline); display: flex; flex-direction: column; min-height: 0; }
+main { padding: 32px 48px 64px; max-width: 980px; width: 100%; }
+
+/* История */
+.search { padding: 16px; border-bottom: 1px solid var(--hairline); }
+.search input {
+  width: 100%; height: 40px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid var(--hairline); background: var(--surface); outline: none;
+}
+.search input:focus { border-color: var(--accent); }
+.history { overflow-y: auto; flex: 1; }
+.history .empty { padding: 24px 16px; color: var(--muted); font-size: 14px; }
+.item {
+  display: grid; grid-template-columns: 8px 1fr 28px; gap: 4px 12px; align-items: baseline;
+  padding: 12px 16px; border-bottom: 1px solid var(--hairline); cursor: pointer; min-height: 44px;
+}
+.item:hover { background: var(--surface); }
+.item.active { background: var(--accent-soft); }
+.item .dot { align-self: center; }
+.item .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .del {
+  grid-row: 1 / span 2; grid-column: 3; align-self: center; width: 28px; height: 28px; border: 0; border-radius: 50%;
+  background: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .15s;
+}
+.item:hover .del, .item .del:focus-visible { opacity: 1; }
+.item .del:hover { color: var(--critical); background: var(--bg); }
+@media (hover: none) { .item .del { opacity: 1; } }
+.item .sub { grid-column: 2; color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 8px; }
+
+/* Форма */
+.form { display: grid; grid-template-columns: 1.4fr 1fr auto; gap: 12px; align-items: end; }
+.field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.field input, .field select {
+  width: 100%; height: 48px; padding: 0 14px; border-radius: 12px;
+  border: 1px solid var(--hairline); background: var(--bg); outline: none; font-size: 17px;
+}
+.field input:focus, .field select:focus { border-color: var(--accent); }
+.field input.invalid { border-color: var(--critical); }
+.field .hint { font-size: 12px; color: var(--critical); min-height: 18px; margin-top: 4px; }
+.btn {
+  height: 48px; padding: 0 22px; border-radius: 12px; border: 1px solid var(--hairline);
+  background: var(--bg); cursor: pointer; font-weight: 600; white-space: nowrap;
+}
+.btn:hover { background: var(--surface); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.small { height: 36px; padding: 0 14px; font-weight: 400; font-size: 14px; }
+.options { display: flex; gap: 20px; align-items: center; margin-top: 4px; color: var(--muted); font-size: 14px; flex-wrap: wrap; }
+.options label { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; }
+.options select { height: 32px; border-radius: 8px; border: 1px solid var(--hairline); background: var(--bg); padding: 0 8px; }
+
+/* Результат */
+.result { margin-top: 40px; }
+.eyebrow { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.hero { font-size: clamp(32px, 5vw, 56px); font-weight: 600; letter-spacing: -.03em; line-height: 1.08; margin: 10px 0 0; }
+.hero-sub { font-size: 19px; color: var(--muted); margin-top: 12px; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; }
+.chip { border: 1px solid var(--hairline); border-radius: 999px; padding: 6px 14px; font-size: 14px; }
+.meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 32px; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); }
+.meta div { padding: 14px 16px 14px 0; }
+.meta div + div { padding-left: 16px; border-left: 1px solid var(--hairline); }
+.meta dt { font-size: 12px; color: var(--muted); }
+.meta dd { margin: 2px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; }
+.section { margin-top: 36px; }
+.section h3 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 0 0 10px; }
+.section p { margin: 0 0 10px; max-width: 72ch; }
+.warn-box { margin-top: 28px; border-left: 3px solid var(--pending); padding: 4px 0 4px 16px; }
+.warn-box div { font-size: 14px; color: var(--muted); margin: 4px 0; overflow-wrap: anywhere; }
+.err-box { border-left-color: var(--critical); }
+.files a {
+  display: inline-flex; align-items: center; gap: 8px; margin: 0 8px 8px 0; padding: 10px 14px;
+  border: 1px solid var(--hairline); border-radius: 10px; color: var(--text); text-decoration: none; font-size: 14px;
+}
+.files a:hover { border-color: var(--accent); color: var(--accent); }
+details.raw summary { cursor: pointer; color: var(--accent); font-size: 14px; }
+details.raw pre { white-space: pre-wrap; font: inherit; font-size: 14px; background: var(--surface); padding: 16px; border-radius: var(--radius); }
+
+/* Прогресс */
+.steps { margin-top: 28px; display: grid; gap: 14px; }
+.step { display: flex; gap: 12px; align-items: center; color: var(--muted); }
+.step.done { color: var(--text); } .step.now { color: var(--text); font-weight: 600; }
+.step .dot { width: 10px; height: 10px; }
+
+/* Пустое состояние */
+.intro { margin-top: 48px; color: var(--muted); max-width: 60ch; }
+.intro ol { padding-left: 20px; } .intro li { margin: 6px 0; }
+kbd { border: 1px solid var(--hairline); border-radius: 6px; padding: 1px 6px; font: inherit; font-size: 12px; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); opacity: 0;
+  background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-size: 14px;
+  transition: .2s; pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateX(-50%); pointer-events: auto; }
+.toast button { background: none; border: 0; color: var(--accent); font-weight: 600; cursor: pointer; margin-left: 12px; padding: 4px 0; }
+
+/* Ключ доступа */
+.keybar { display: none; gap: 8px; align-items: center; }
+.keybar.show { display: flex; }
+.keybar input { height: 36px; border-radius: 8px; border: 1px solid var(--critical); padding: 0 10px; background: var(--bg); width: 220px; }
+
+
+/* Настройки ИИ */
+.linkbtn { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 6px 0; font-size: 13px; }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,.32); display: none; align-items: flex-start; justify-content: center; z-index: 20; overflow-y: auto; padding: 40px 16px; }
+.overlay.show { display: flex; }
+.modal { background: var(--bg); border-radius: 20px; width: 100%; max-width: 760px; box-shadow: 0 20px 60px rgba(0,0,0,.12); padding: 28px 32px 32px; }
+.modal-head { display: flex; justify-content: space-between; align-items: center; }
+.modal-head h2 { margin: 0; font-size: 28px; letter-spacing: -.02em; font-weight: 600; }
+.modal h4 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 28px 0 10px; }
+.close { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--hairline); background: var(--bg); cursor: pointer; font-size: 18px; line-height: 1; }
+.choice { display: grid; grid-template-columns: 20px 1fr auto; gap: 12px; align-items: center; padding: 12px 14px; border: 1px solid var(--hairline); border-radius: 12px; margin-bottom: 8px; cursor: pointer; min-height: 52px; }
+.choice:hover { border-color: var(--muted); }
+.choice.sel { border-color: var(--accent); background: var(--accent-soft); }
+.choice input { accent-color: var(--accent); width: 18px; height: 18px; margin: 0; }
+.choice .t { font-weight: 600; } .choice .s { font-size: 13px; color: var(--muted); }
+.test-res { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.test-res.ok { color: var(--verified); } .test-res.bad { color: var(--critical); }
+.card { border: 1px solid var(--hairline); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 12px; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.card-head .t { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.card-head .s { font-size: 13px; color: var(--muted); }
+.card-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+.card-body .full { grid-column: 1 / -1; }
+.card-body label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.card-body input, .card-body select { width: 100%; height: 42px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--hairline); background: var(--bg); outline: none; }
+.card-body input:focus, .card-body select:focus { border-color: var(--accent); }
+.card-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+.card .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+.card .note a { color: var(--accent); }
+.mlist { display: grid; gap: 6px; }
+.mrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 10px; background: var(--surface); }
+.mrow .s { font-size: 13px; color: var(--muted); }
+.mrow button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 18px; width: 32px; height: 32px; }
+.mrow button:hover { color: var(--critical); }
+.picker { position: relative; }
+.picker-list { position: absolute; left: 0; right: 0; top: 46px; background: var(--bg); border: 1px solid var(--hairline); border-radius: 12px; max-height: 280px; overflow-y: auto; z-index: 3; display: none; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+.picker-list.show { display: block; }
+.picker-item { padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+.picker-item:hover, .picker-item.hl { background: var(--accent-soft); }
+.picker-item .s { color: var(--muted); white-space: nowrap; }
+@media (max-width: 600px) { .modal { padding: 20px 16px; } .card-body { grid-template-columns: 1fr; } }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  aside { border-right: 0; border-top: 1px solid var(--hairline); order: 2; max-height: none; }
+  main { padding: 24px 16px 40px; }
+  .form { grid-template-columns: 1fr 1fr; }
+  .form .submit { grid-column: 1 / -1; }
+  .form .submit label, .form .submit .hint { display: none; }
+  .form .btn.primary { width: 100%; }
+  header .brand span { display: none; }
+  .meta div:nth-child(n+3) { border-top: 1px solid var(--hairline); }
+  .meta { grid-template-columns: 1fr 1fr; }
+  .meta div:nth-child(3) { padding-left: 0; border-left: 0; }
+  header { padding: 12px 16px; }
+  .status-line .hide-sm { display: none; }
+}
+@media print {
+  header, aside, .form, .options, .actions, details.raw { display: none !important; }
+  .layout { display: block; } main { padding: 0; max-width: none; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Проверка контрагентов <span>· Rusprofile + Глобас + ИИ</span></div>
+  <div class="status-line">
+    <div class="keybar" id="keybar">
+      <input id="apikey" type="password" placeholder="Ключ доступа (API_TOKEN)">
+      <button class="btn small" id="saveKey">Сохранить</button>
+    </div>
+    <span id="svc"><span class="dot"></span> подключение…</span>
+    <button class="btn small" id="openSettings" type="button">Настройки ИИ</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="search"><input id="q" type="search" placeholder="Поиск по ИНН или названию" autocomplete="off"></div>
+    <div class="history" id="history"></div>
+  </aside>
+
+  <main>
+    <form class="form" id="form" autocomplete="off">
+      <div class="field">
+        <label for="inn">ИНН</label>
+        <input id="inn" class="num" inputmode="numeric" placeholder="10 или 12 цифр" autofocus>
+        <div class="hint" id="innHint"></div>
+      </div>
+      <div class="field">
+        <label for="kpp">КПП <span style="opacity:.6">— необязательно</span></label>
+        <input id="kpp" class="num" placeholder="9 цифр">
+        <div class="hint" id="kppHint"></div>
+      </div>
+      <div class="field submit">
+        <label>&nbsp;</label>
+        <button class="btn primary" id="go" type="submit">Проверить</button>
+        <div class="hint"></div>
+      </div>
+    </form>
+    <div class="options">
+      <label><input type="checkbox" id="force"> Провести заново (не брать из кэша)</label>
+      <label>Модель <select id="ai"><option value="">по умолчанию</option></select></label>
+    </div>
+
+    <section id="view"></section>
+  </main>
+</div>
+
+<div class="overlay" id="settings" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+  <div class="modal">
+    <div class="modal-head"><h2 id="settingsTitle">Настройки ИИ</h2><button class="close" id="closeSettings" aria-label="Закрыть">×</button></div>
+
+    <h4>Модель для анализа</h4>
+    <div id="choices"></div>
+
+    <h4>Подключения</h4>
+
+    <div class="card" id="cardRouter">
+      <div class="card-head"><div class="t"><span class="dot" id="dotRouter"></span>RouterAI</div><div class="s" id="maskRouter"></div></div>
+      <div class="card-body">
+        <div class="full"><label for="keyRouter">API-ключ</label><input id="keyRouter" type="password" autocomplete="off" placeholder="sk-…"></div>
+      </div>
+      <div class="card-actions">
+        <button class="btn small primary" data-save="routerai_api_key" data-input="keyRouter">Сохранить ключ</button>
+        <button class="btn small" data-remove="routerai_api_key">Удалить ключ</button>
+      </div>
+      <div class="card-body">
+        <div class="full"><label>Модели</label><div class="mlist" id="routerModels"></div></div>
+        <div class="full picker"><label for="routerAdd">Добавить модель</label>
+          <input id="routerAdd" autocomplete="off" placeholder="Начните вводить: qwen, deepseek, llama…">
+          <div class="picker-list" id="routerPick"></div></div>
+      </div>
+      <div class="note">Один ключ — все модели каталога, оплата в рублях. Ключ — в личном кабинете <a href="https://routerai.ru" target="_blank" rel="noopener">routerai.ru</a>. Цена проверки — оценка для отчёта ~25 тыс. токенов.</div>
+    </div>
+
+    <div class="card" id="cardGiga">
+      <div class="card-head"><div class="t"><span class="dot" id="dotGiga"></span>GigaChat</div><div class="s" id="maskGiga"></div></div>
+      <div class="card-body">
+        <div class="full"><label for="keyGiga">Ключ авторизации (Authorization key)</label><input id="keyGiga" type="password" autocomplete="off" placeholder="Base64-строка из личного кабинета"></div>
+        <div><label for="scopeGiga">Тип доступа</label><select id="scopeGiga">
+          <option value="GIGACHAT_API_CORP">Юрлицо — оплата по договору (CORP)</option>
+          <option value="GIGACHAT_API_B2B">Юрлицо — пакеты токенов (B2B)</option>
+          <option value="GIGACHAT_API_PERS">Физлицо (PERS)</option></select></div>
+        <div><label for="modelGiga">Модель</label><select id="modelGiga">
+          <option>GigaChat-2-Max</option><option>GigaChat-2-Pro</option><option>GigaChat-2</option></select></div>
+      </div>
+      <div class="card-actions">
+        <button class="btn small primary" id="saveGiga">Сохранить</button>
+        <button class="btn small" data-remove="gigachat_auth_key">Удалить ключ</button>
+      </div>
+      <div class="note">Ключ — на <a href="https://developers.sber.ru/studio" target="_blank" rel="noopener">developers.sber.ru</a> → проект GigaChat API → «Ключ авторизации».</div>
+    </div>
+
+    <div class="card" id="cardClaude">
+      <div class="card-head"><div class="t"><span class="dot" id="dotClaude"></span>Claude (Anthropic)</div><div class="s" id="maskClaude"></div></div>
+      <div class="card-body">
+        <div><label for="keyClaude">API-ключ</label><input id="keyClaude" type="password" autocomplete="off" placeholder="sk-ant-…"></div>
+        <div><label for="modelClaude">Модель</label><select id="modelClaude">
+          <option value="claude-opus-5-5">Claude Opus 5.5</option><option value="claude-sonnet-5-5">Claude Sonnet 5.5</option>
+          <option value="claude-haiku-5-5">Claude Haiku 5.5</option></select></div>
+      </div>
+      <div class="card-actions">
+        <button class="btn small primary" id="saveClaude">Сохранить</button>
+        <button class="btn small" data-remove="anthropic_api_key">Удалить ключ</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const VERDICT = {
+  "Сотрудничество безопасно": "ok",
+  "Требуются обеспечительные меры": "warn",
+  "Сотрудничество не рекомендуется": "bad",
+};
+const STAGES = ["В очереди", "Скачивание отчётов", "Анализ ИИ", "Готово"];
+let apiKey = "";
+try { apiKey = localStorage.getItem("checkerKey") || ""; } catch (e) {}
+let current = null, pollTimer = null, tickTimer = null;
+
+/* ---------- API ---------- */
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { "Content-Type": "application/json", ...(apiKey ? { "X-API-Key": apiKey } : {}), ...(opts.headers || {}) },
+  });
+  if (res.status === 401) { $("#keybar").classList.add("show"); throw new Error("Нужен ключ доступа"); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Ошибка сервера " + res.status);
+  return data;
+}
+const fileUrl = (id, name) => `/api/v1/checks/${id}/files/${encodeURIComponent(name)}` + (apiKey ? `?key=${encodeURIComponent(apiKey)}` : "");
+
+/* ---------- Утилиты ---------- */
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function paragraphs(text) {
+  return esc(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "$1")
+    .split(/\n{2,}/).map((p) => `<p>${p.replace(/\n/g, " ")}</p>`).join("");
+}
+function fmtDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }) + " " +
+    d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+}
+let toastTimer = null;
+function toast(msg, action, ms = 2200) {
+  const t = $("#toast");
+  t.textContent = msg;
+  if (action) {
+    const b = document.createElement("button"); b.textContent = action.label;
+    b.onclick = () => { t.classList.remove("show"); action.run(); };
+    t.appendChild(b);
+  }
+  t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), ms);
+}
+function dotClass(job) {
+  if (job["Статус"] === "error") return "bad";
+  if (job["Статус"] !== "done") return "run";
+  return VERDICT[job["Итог"]] || "";
+}
+
+function validInn(inn) {
+  if (!/^\d{10}$|^\d{12}$/.test(inn)) return false;
+  const d = [...inn].map(Number);
+  const c = (w) => w.reduce((s, x, i) => s + x * d[i], 0) % 11 % 10;
+  if (inn.length === 10) return c([2, 4, 10, 3, 5, 9, 4, 6, 8]) === d[9];
+  return c([7, 2, 4, 10, 3, 5, 9, 4, 6, 8]) === d[10] && c([3, 7, 2, 4, 10, 3, 5, 9, 4, 6, 8]) === d[11];
+}
+
+/* Вставка «ИНН 1655503631 КПП 165501001» или «1655503631/165501001» раскладывается по полям */
+$("#inn").addEventListener("paste", (e) => {
+  const text = (e.clipboardData || window.clipboardData).getData("text");
+  const nums = text.match(/\d{9,12}/g) || [];
+  const inn = nums.find((n) => n.length === 10 || n.length === 12);
+  const kpp = nums.find((n) => n.length === 9);
+  if (inn) { e.preventDefault(); $("#inn").value = inn; if (kpp) $("#kpp").value = kpp; checkInputs(); }
+});
+function checkInputs(final) {
+  const inn = $("#inn").value.replace(/\D/g, ""), kpp = $("#kpp").value.trim();
+  let ok = true, innMsg = "", kppMsg = "";
+  if (inn && (final || inn.length >= 10) && !validInn(inn)) { innMsg = inn.length === 10 || inn.length === 12 ? "Неверная контрольная сумма ИНН" : "ИНН — 10 или 12 цифр"; ok = false; }
+  if (final && !inn) { innMsg = "Введите ИНН"; ok = false; }
+  if (kpp && !/^[0-9A-Z]{9}$/i.test(kpp)) { kppMsg = "КПП — 9 символов"; ok = false; }
+  $("#innHint").textContent = innMsg; $("#inn").classList.toggle("invalid", !!innMsg);
+  $("#kppHint").textContent = kppMsg; $("#kpp").classList.toggle("invalid", !!kppMsg);
+  return ok;
+}
+$("#inn").addEventListener("input", () => checkInputs());
+$("#kpp").addEventListener("input", () => checkInputs());
+
+/* ---------- Запуск проверки ---------- */
+$("#form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!checkInputs(true)) return;
+  const body = { inn: $("#inn").value.replace(/\D/g, ""), kpp: $("#kpp").value.trim() || null, force: $("#force").checked, ai: $("#ai").value || null };
+  $("#go").disabled = true;
+  try {
+    const job = await api("/api/v1/checks", { method: "POST", body: JSON.stringify(body) });
+    if (job["Статус"] === "done" && !body.force) toast("Есть свежее заключение — показываю его");
+    $("#force").checked = false;
+    openCheck(job.id);
+    loadHistory();
+  } catch (err) { toast(err.message); }
+  finally { $("#go").disabled = false; }
+});
+
+async function rerun() {
+  if (!current) return;
+  $("#inn").value = current["ИНН"]; $("#kpp").value = current["КПП"] || ""; $("#force").checked = true;
+  $("#form").requestSubmit();
+}
+
+/* ---------- Открытие проверки ---------- */
+async function openCheck(id) {
+  clearTimeout(pollTimer);
+  if (location.hash !== "#" + id) history.replaceState(null, "", "#" + id);
+  try {
+    const job = await api(`/api/v1/checks/${id}`);
+    current = job;
+    render(job);
+    markActive(id);
+    if (job["Статус"] === "queued" || job["Статус"] === "running") pollTimer = setTimeout(() => openCheck(id), 2000);
+    else loadHistory();
+  } catch (err) { $("#view").innerHTML = `<div class="warn-box err-box"><div>${esc(err.message)}</div></div>`; }
+}
+
+function render(job) {
+  clearInterval(tickTimer);
+  const v = $("#view");
+  const st = job["Статус"];
+  const title = esc(job["Контрагент"] || ("ИНН " + job["ИНН"]));
+
+  if (st === "queued" || st === "running") {
+    const idx = st === "queued" ? 0 : (job["Этап"] || "").startsWith("Анализ") ? 2 : 1;
+    v.innerHTML = `<div class="result">
+      <div class="eyebrow"><span class="dot run"></span> Идёт проверка · <span class="num" id="elapsed"></span></div>
+      <div class="hero">ИНН <span class="num">${esc(job["ИНН"])}</span></div>
+      <div class="hero-sub">Обычно занимает 1–3 минуты. Страницу можно закрыть — результат сохранится в истории.</div>
+      <div class="steps">${STAGES.map((s, i) => {
+        const label = i === 2 && idx === 2 ? esc(job["Этап"]) : s;
+        return `<div class="step ${i < idx ? "done" : i === idx ? "now" : ""}"><span class="dot ${i < idx ? "ok" : i === idx ? "run" : ""}"></span>${label}</div>`;
+      }).join("")}</div></div>`;
+    const start = new Date(job["Создано"]).getTime();
+    const tick = () => { const s = Math.max(0, Math.round((Date.now() - start) / 1000)); const el = $("#elapsed"); if (el) el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+    tick(); tickTimer = setInterval(tick, 1000);
+    return;
+  }
+
+  if (st === "error") {
+    v.innerHTML = `<div class="result">
+      <div class="eyebrow"><span class="dot bad"></span> Проверка не выполнена · ${fmtDate(job["Создано"])}</div>
+      <div class="hero">ИНН <span class="num">${esc(job["ИНН"])}</span></div>
+      <div class="warn-box err-box"><div>${esc(job["Ошибка"])}</div></div>
+      <div class="actions"><button class="btn small" onclick="rerun()">Попробовать снова</button>
+        <button class="btn small" onclick="removeCheck(current.id, 'ИНН ' + current['ИНН'])">Удалить</button></div></div>`;
+    return;
+  }
+
+  const verdict = job["Итог"] || "Итог не распознан";
+  const cls = VERDICT[job["Итог"]] || "";
+  const measures = job["ОбеспечительныеМеры"] || [];
+  const files = job["ФайлыПроверки"] || [];
+  const warnings = job["Предупреждения"] || [];
+  v.innerHTML = `<div class="result">
+    <div class="eyebrow"><span class="dot ${cls}"></span> ${title}</div>
+    <div class="hero">${esc(verdict)}</div>
+    ${measures.length ? `<div class="chips">${measures.map((m) => `<span class="chip">${esc(m)}</span>`).join("")}</div>` : ""}
+    <dl class="meta">
+      <div><dt>ИНН / КПП</dt><dd class="num">${esc(job["ИНН"])}${job["КПП"] ? " / " + esc(job["КПП"]) : ""}</dd></div>
+      <div><dt>Дата заключения</dt><dd class="num">${fmtDate(job["ДатаФормированияЗаключения"])}</dd></div>
+      <div><dt>ИИ / модель</dt><dd>${esc(job["ИИ/МодельИИ"])}</dd></div>
+      <div><dt>Источники</dt><dd>${files.length} ${files.length === 1 ? "отчёт" : "отчёта"}</dd></div>
+    </dl>
+    <div class="actions">
+      <button class="btn small" onclick="copyText()">Копировать заключение</button>
+      <button class="btn small" onclick="copyJson()">Копировать JSON</button>
+      <button class="btn small" onclick="window.print()">Печать</button>
+      <button class="btn small" onclick="rerun()">Проверить заново</button>
+      <button class="btn small" onclick="removeCheck(current.id, current['Контрагент'] || 'ИНН ' + current['ИНН'])">Удалить</button>
+    </div>
+    ${warnings.length ? `<div class="warn-box">${warnings.map((w) => `<div>${esc(w)}</div>`).join("")}</div>` : ""}
+    ${job["Основания"] ? `<div class="section"><h3>Основания для заключения</h3>${paragraphs(job["Основания"])}</div>` : ""}
+    ${job["ИтогТекст"] ? `<div class="section"><h3>Итог</h3>${paragraphs(job["ИтогТекст"])}</div>` : ""}
+    ${job["Подписант"] ? `<div class="section"><h3>Подписант</h3>${paragraphs(job["Подписант"])}</div>` : ""}
+    ${files.length ? `<div class="section files"><h3>Исходные отчёты</h3>${files.map((f) => `<a href="${fileUrl(job.id, f)}" target="_blank" rel="noopener">PDF · ${esc(f)}</a>`).join("")}</div>` : ""}
+    <div class="section"><details class="raw"><summary>Полный ответ ИИ</summary><pre>${esc(job["ТекстЗаключения"])}</pre></details></div>
+  </div>`;
+}
+
+function copy(text, msg) {
+  navigator.clipboard.writeText(text).then(() => toast(msg), () => toast("Не удалось скопировать"));
+}
+function copyText() { if (current) copy(current["ТекстЗаключения"] || "", "Заключение скопировано"); }
+function copyJson() { if (current) copy(JSON.stringify(current, null, 2), "JSON скопирован"); }
+
+/* ---------- История ---------- */
+let searchTimer = null;
+async function loadHistory() {
+  try {
+    const list = await api(`/api/v1/checks?limit=100&q=${encodeURIComponent($("#q").value.trim())}`);
+    const h = $("#history");
+    if (!list.length) { h.innerHTML = `<div class="empty">${$("#q").value ? "Ничего не найдено" : "Здесь появятся проверенные контрагенты"}</div>`; return; }
+    const busy = (j) => j["Статус"] === "queued" || j["Статус"] === "running";
+    h.innerHTML = list.filter((j) => !pendingDeletes.has(j.id)).map((j) => `
+      <div class="item" data-id="${j.id}">
+        <span class="dot ${dotClass(j)}"></span>
+        <span class="name">${esc(j["Контрагент"] || "ИНН " + j["ИНН"])}</span>
+        ${busy(j) ? "" : `<button class="del" type="button" title="Удалить" aria-label="Удалить проверку">×</button>`}
+        <span class="sub"><span class="num">${esc(j["ИНН"])}</span><span class="num">${fmtDate(j["Создано"])}</span></span>
+      </div>`).join("") || `<div class="empty">Здесь появятся проверенные контрагенты</div>`;
+    h.querySelectorAll(".item").forEach((el) => el.addEventListener("click", (e) => {
+      if (e.target.closest(".del")) { e.stopPropagation(); removeCheck(el.dataset.id, el.querySelector(".name").textContent); return; }
+      openCheck(el.dataset.id);
+    }));
+    if (current) markActive(current.id);
+  } catch (err) { /* ошибка ключа уже показана в шапке */ }
+}
+/* Удаление с возможностью отмены: запрос уходит через 5 секунд */
+const pendingDeletes = new Map();
+function removeCheck(id, name) {
+  const el = document.querySelector(`.item[data-id="${id}"]`);
+  if (el) el.remove();
+  if (current && current.id === id) { current = null; clearTimeout(pollTimer); history.replaceState(null, "", location.pathname); intro(); }
+  const timer = setTimeout(() => commitDelete(id), 5000);
+  pendingDeletes.set(id, timer);
+  toast(`«${name}» удалён`, { label: "Отменить", run: () => { clearTimeout(timer); pendingDeletes.delete(id); loadHistory(); } }, 5000);
+}
+async function commitDelete(id, keepalive = false) {
+  pendingDeletes.delete(id);
+  try { await api(`/api/v1/checks/${id}`, { method: "DELETE", keepalive }); }
+  catch (err) { if (!keepalive) { toast(err.message); loadHistory(); } }
+}
+window.addEventListener("pagehide", () => { for (const [id, t] of pendingDeletes) { clearTimeout(t); commitDelete(id, true); } });
+
+function markActive(id) { document.querySelectorAll(".item").forEach((el) => el.classList.toggle("active", el.dataset.id === id)); }
+$("#q").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadHistory, 250); });
+
+/* ---------- Состояние сервиса ---------- */
+async function health() {
+  try {
+    const h = await (await fetch("/health")).json();
+    const sel = $("#ai"), prev = sel.value;
+    const def = h.ai.find((a) => a.id === h.default) || (h.default === "auto" ? h.ai[0] : null);
+    sel.innerHTML = `<option value="">${def ? "по умолчанию — " + esc(def.name) : "по умолчанию"}</option>` +
+      h.ai.map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
+    if (h.ai.some((a) => a.id === prev)) sel.value = prev;
+    const src = Object.entries(h.sources).filter(([, on]) => on).map(([k]) => k === "globas" ? "Глобас" : "Rusprofile").join(", ");
+    $("#svc").innerHTML = h.ai.length
+      ? `<span class="dot ok"></span> <span class="hide-sm">${esc(src)} · </span>${esc(def ? def.name : "ИИ подключён")}`
+      : `<span class="dot warn"></span> ИИ не подключён`;
+    if (!h.ai.length && !health.prompted && !h.auth) { health.prompted = true; openSettings(); }
+    if (h.auth && !apiKey) $("#keybar").classList.add("show");
+  } catch (e) { $("#svc").innerHTML = `<span class="dot bad"></span> сервис недоступен`; }
+}
+$("#saveKey").addEventListener("click", () => {
+  apiKey = $("#apikey").value.trim();
+  try { localStorage.setItem("checkerKey", apiKey); } catch (e) {}
+  $("#keybar").classList.remove("show"); loadHistory(); toast("Ключ сохранён");
+});
+
+
+/* ---------- Настройки ИИ ---------- */
+let cfg = null, catalog = [], pickIdx = -1;
+const priceOf = (id) => catalog.find((m) => m.id === id);
+const rub = (x) => x < 1 ? x.toFixed(2).replace(".", ",") + " ₽" : x.toFixed(1).replace(".", ",") + " ₽";
+
+async function loadSettings() {
+  cfg = await api("/api/v1/settings");
+  renderSettings();
+  return cfg;
+}
+async function saveSettings(patch, msg) {
+  try { cfg = await api("/api/v1/settings", { method: "PUT", body: JSON.stringify(patch) }); renderSettings(); health(); if (msg) toast(msg); }
+  catch (err) { toast(err.message); }
+}
+
+function renderSettings() {
+  if (!cfg) return;
+  const provs = cfg.providers;
+  const choices = [{ id: "auto", name: "Автоматически", sub: provs.length ? "первая подключённая: " + provs[0].name : "подключите модель ниже" }]
+    .concat(provs.map((p) => {
+      const m = p.id.startsWith("routerai:") ? priceOf(p.id.slice(9)) : null;
+      return { ...p, sub: m ? `≈ ${rub(m.per_check)} за проверку · контекст ${m.context >= 1e6 ? (m.context / 1e6).toFixed(1).replace(/\.0$/, "").replace(".", ",") + "M" : Math.round(m.context / 1000) + "K"}` : "" };
+    }));
+  $("#choices").innerHTML = (provs.length ? "" : `<div class="test-res" style="margin-bottom:10px">Ни одна модель не подключена — введите ключ в одном из блоков ниже.</div>`) +
+    choices.map((c) => `
+    <label class="choice ${cfg.ai_provider === c.id ? "sel" : ""}">
+      <input type="radio" name="aiDefault" value="${esc(c.id)}" ${cfg.ai_provider === c.id ? "checked" : ""}>
+      <span><div class="t">${esc(c.name)}</div>${c.sub ? `<div class="s">${esc(c.sub)}</div>` : ""}<div class="test-res" data-res="${esc(c.id)}"></div></span>
+      ${c.id === "auto" ? "<span></span>" : `<button class="btn small" type="button" data-test="${esc(c.id)}">Проверить</button>`}
+    </label>`).join("");
+
+  const st = (dot, mask, key) => { $(dot).className = "dot " + (key ? "ok" : ""); $(mask).textContent = key ? "ключ " + key : "не подключено"; };
+  st("#dotRouter", "#maskRouter", cfg.routerai.key);
+  st("#dotGiga", "#maskGiga", cfg.gigachat.key);
+  st("#dotClaude", "#maskClaude", cfg.anthropic.key);
+  $("#scopeGiga").value = cfg.gigachat.scope; $("#modelGiga").value = cfg.gigachat.model;
+  $("#modelClaude").value = cfg.anthropic.model;
+  $("#routerModels").innerHTML = cfg.routerai.models.length ? cfg.routerai.models.map((id) => {
+    const m = priceOf(id);
+    return `<div class="mrow"><span><div>${esc(m ? m.name : id)}</div><div class="s">${esc(id)}${m ? ` · ≈ ${rub(m.per_check)} за проверку` : ""}</div></span>
+      <button type="button" title="Убрать" data-rm-model="${esc(id)}">×</button></div>`;
+  }).join("") : `<div class="test-res">Модели не выбраны</div>`;
+}
+
+$("#choices").addEventListener("change", (e) => {
+  if (e.target.name === "aiDefault") saveSettings({ ai_provider: e.target.value }, "Модель по умолчанию сохранена");
+});
+$("#choices").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-test]"); if (!b) return;
+  e.preventDefault();
+  const res = document.querySelector(`[data-res="${CSS.escape(b.dataset.test)}"]`);
+  b.disabled = true; res.className = "test-res"; res.textContent = "Проверяю…";
+  try {
+    const r = await api("/api/v1/settings/test", { method: "POST", body: JSON.stringify({ provider: b.dataset.test }) });
+    res.className = "test-res " + (r.ok ? "ok" : "bad");
+    res.textContent = r.ok ? `Работает · ответ за ${String(r.seconds).replace(".", ",")} с · ${r.model}` : r.error;
+  } catch (err) { res.className = "test-res bad"; res.textContent = err.message; }
+  finally { b.disabled = false; }
+});
+
+document.querySelectorAll("[data-save]").forEach((b) => b.addEventListener("click", () => {
+  const v = $("#" + b.dataset.input).value.trim();
+  if (!v) { toast("Введите ключ"); return; }
+  $("#" + b.dataset.input).value = "";
+  saveSettings({ [b.dataset.save]: v }, "Ключ сохранён");
+}));
+document.querySelectorAll("[data-remove]").forEach((b) => b.addEventListener("click", () => {
+  if (confirm("Удалить ключ? Модели этого подключения станут недоступны.")) saveSettings({ [b.dataset.remove]: "" }, "Ключ удалён");
+}));
+$("#saveGiga").addEventListener("click", () => {
+  const patch = { gigachat_scope: $("#scopeGiga").value, gigachat_model: $("#modelGiga").value };
+  const k = $("#keyGiga").value.trim(); if (k) patch.gigachat_auth_key = k;
+  $("#keyGiga").value = ""; saveSettings(patch, "GigaChat сохранён");
+});
+$("#saveClaude").addEventListener("click", () => {
+  const patch = { anthropic_model: $("#modelClaude").value };
+  const k = $("#keyClaude").value.trim(); if (k) patch.anthropic_api_key = k;
+  $("#keyClaude").value = ""; saveSettings(patch, "Claude сохранён");
+});
+
+/* Выбор моделей RouterAI из каталога */
+$("#routerModels").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-rm-model]"); if (!b) return;
+  saveSettings({ routerai_models: cfg.routerai.models.filter((m) => m !== b.dataset.rmModel) }, "Модель убрана");
+});
+function addModel(id) {
+  if (!id) return;
+  $("#routerAdd").value = ""; $("#routerPick").classList.remove("show");
+  if (cfg.routerai.models.includes(id)) { toast("Модель уже в списке"); return; }
+  saveSettings({ routerai_models: [...cfg.routerai.models, id] }, "Модель добавлена");
+}
+function renderPick() {
+  const q = $("#routerAdd").value.trim().toLowerCase();
+  const list = $("#routerPick");
+  if (!q) { list.classList.remove("show"); return; }
+  const found = catalog.filter((m) => (m.id + " " + m.name).toLowerCase().includes(q)).slice(0, 40);
+  const custom = /^[\w.-]+\/[\w.:-]+$/.test(q) && !found.some((m) => m.id === q);
+  list.innerHTML = found.map((m, i) => `<div class="picker-item ${i === pickIdx ? "hl" : ""}" data-id="${esc(m.id)}"><span>${esc(m.name)}</span><span class="s">≈ ${rub(m.per_check)} / проверка</span></div>`).join("") +
+    (custom ? `<div class="picker-item" data-id="${esc(q)}"><span>Добавить «${esc(q)}»</span><span class="s">своя модель</span></div>` : "") +
+    (!found.length && !custom ? `<div class="picker-item"><span class="s">Ничего не найдено</span></div>` : "");
+  list.classList.add("show");
+}
+$("#routerAdd").addEventListener("input", () => { pickIdx = -1; renderPick(); });
+$("#routerAdd").addEventListener("keydown", (e) => {
+  const items = [...document.querySelectorAll("#routerPick .picker-item[data-id]")];
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); pickIdx = Math.max(0, Math.min(items.length - 1, pickIdx + (e.key === "ArrowDown" ? 1 : -1))); renderPick(); }
+  if (e.key === "Enter") { e.preventDefault(); const it = items[pickIdx >= 0 ? pickIdx : 0]; if (it) addModel(it.dataset.id); }
+  if (e.key === "Escape") $("#routerPick").classList.remove("show");
+});
+$("#routerPick").addEventListener("mousedown", (e) => { const it = e.target.closest("[data-id]"); if (it) { e.preventDefault(); addModel(it.dataset.id); } });
+$("#routerAdd").addEventListener("blur", () => setTimeout(() => $("#routerPick").classList.remove("show"), 150));
+
+async function openSettings() {
+  $("#settings").classList.add("show");
+  try {
+    await loadSettings();
+    if (!catalog.length) { catalog = await api("/api/v1/settings/routerai/catalog"); renderSettings(); }
+  } catch (err) { toast(err.message); }
+}
+function closeSettings() { $("#settings").classList.remove("show"); }
+$("#openSettings").addEventListener("click", openSettings);
+$("#closeSettings").addEventListener("click", closeSettings);
+$("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") closeSettings(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#settings").classList.contains("show")) closeSettings(); });
+
+/* ---------- Пустое состояние и горячие клавиши ---------- */
+function intro() {
+  $("#view").innerHTML = `<div class="result">
+    <div class="hero">Проверка контрагента</div>
+    <div class="intro">
+      <ol>
+        <li>Введите ИНН (КПП — для обособленных подразделений). Можно вставить реквизиты одной строкой — поля заполнятся сами.</li>
+        <li>Сервис скачает отчёты Rusprofile и Глобас и передаст их ИИ.</li>
+        <li>Через 1–3 минуты появится итог: безопасно, нужны обеспечительные меры или сотрудничество не рекомендуется.</li>
+      </ol>
+      <p>Повторная проверка того же ИНН в течение суток откроется мгновенно из кэша. <kbd>/</kbd> — перейти к полю ИНН.</p>
+    </div></div>`;
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $("#inn").focus(); }
+});
+window.addEventListener("hashchange", () => { const id = location.hash.slice(1); if (id && (!current || current.id !== id)) openCheck(id); });
+
+health();
+loadHistory();
+if (location.hash.length > 1) openCheck(location.hash.slice(1)); else intro();
+</script>
+</body>
+</html>
