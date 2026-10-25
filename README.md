@@ -49,6 +49,8 @@ HTML Rusprofile **не парсится вообще**:
 | `sudo bash linux/autostart-on.sh` | служба systemd `counterparty-checker`: запуск при загрузке, перезапуск при сбое, порт в ufw/firewalld; работает от владельца папки (другой — `SERVICE_USER=имя`) |
 | `sudo bash linux/autostart-off.sh` | останавливает и удаляет службу |
 | `bash linux/logs.sh` | журнал службы (`journalctl`) |
+| `bash linux/update.sh` | обновление из GitHub (ветка `main`): только версии с пройденным CI, `.env` и `data/` не трогает, перед обновлением копирует их в `data/backups/`; если служба не поднялась — откат на прежнюю версию |
+| `sudo bash linux/autoupdate-on.sh` | автообновление по таймеру systemd каждые 15 минут (`UPDATE_INTERVAL=1h` — другой интервал), не прерывает идущие проверки; отключить — `autoupdate-off.sh` |
 | `bash linux/login.sh rusprofile` | ручной вход в источник; нужен экран (`ssh -X`) или профиль, скопированный из `data/browser/<источник>` с другого компьютера |
 
 `SKIP_SYSTEM_DEPS=1 bash linux/install.sh` — не трогать системные пакеты. Порт берётся из `PORT` в `.env`.

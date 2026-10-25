@@ -11,7 +11,7 @@
 |---|---|
 | Сервер | Linux с systemd, от 2 ядер и 4 ГБ памяти, 1 ГБ на диске |
 | Доступ | SSH и пользователь с правами `sudo` |
-| Интернет | rusprofile.ru, globas.credinform.ru, routerai.ru (и/или GigaChat, Claude), pypi.org и cdn.playwright.dev (откуда скачивается Chromium) |
+| Интернет | github.com и api.github.com (обновления), rusprofile.ru, globas.credinform.ru, routerai.ru (и/или GigaChat, Claude), pypi.org и cdn.playwright.dev (откуда скачивается Chromium) |
 | Учётки | логин и пароль Rusprofile, логин и пароль Глобаса |
 | Ключ ИИ | хотя бы один: RouterAI, GigaChat или Claude |
 
@@ -21,22 +21,18 @@
 
 ## 2. Скопируйте сервис на сервер
 
-С компьютера, где лежит архив:
-
-```bash
-scp counterparty-checker.zip пользователь@сервер:~
-```
-
-На сервере:
-
 ```bash
 sudo mkdir -p /opt/counterparty-checker && sudo chown $USER: /opt/counterparty-checker
 ```
 ```bash
-unzip ~/counterparty-checker.zip -d /opt/counterparty-checker && cd /opt/counterparty-checker
+git clone https://github.com/eugeneque/observer.git /opt/counterparty-checker && cd /opt/counterparty-checker
 ```
 
-(Нет `unzip` — `sudo apt install unzip` или `sudo dnf install unzip`.)
+(Нет `git` — `sudo apt install git` или `sudo dnf install git`.)
+
+Если сервер без доступа к GitHub — скопируйте архив (`scp counterparty-checker.zip пользователь@сервер:~`)
+и распакуйте: `unzip ~/counterparty-checker.zip -d /opt/counterparty-checker`. Такую папку `linux/update.sh`
+сам подключит к GitHub при первом обновлении, когда доступ появится.
 
 ---
 
@@ -144,17 +140,38 @@ ufw/firewalld (если они включены) и дождётся ответ�
 
 ## 9. Обновление
 
+Новые версии берутся из GitHub (ветка `main`):
+
 ```bash
-sudo systemctl stop counterparty-checker
-```
-```bash
-unzip -o ~/counterparty-checker.zip -d /opt/counterparty-checker
-```
-```bash
-bash linux/install.sh && sudo systemctl start counterparty-checker
+bash linux/update.sh
 ```
 
-`data`, `.venv` и `.env` сохраняются.
+Скрипт:
+- скачивает последнюю версию и ставит её, **только если на ней прошли проверки CI** на GitHub;
+- **не трогает настройки**: `.env`, ключи ИИ из интерфейса (`data/ai_settings.json`), входы в Rusprofile/Глобас
+  (`data/browser/`) и историю проверок — они не хранятся в git; перед обновлением копирует `.env`,
+  настройки ИИ и базу в `data/backups/<дата>/` (хранятся 10 последних копий);
+- обновляет библиотеки, если они изменились, и перезапускает службу;
+- если служба не ответила за 30 секунд — **возвращает прежнюю версию**;
+- сообщает о новых параметрах из `.env.example`, которых нет в вашем `.env` (до их заполнения действуют
+  значения по умолчанию).
+
+Правки кода прямо на сервере заменяются версией из GitHub — их копия сохраняется в
+`data/backups/<дата>/local-changes.diff`. Обновить, даже если CI не пройден: `bash linux/update.sh --force`.
+
+### Автообновление
+
+```bash
+sudo bash linux/autoupdate-on.sh
+```
+
+Таймер systemd раз в 15 минут проверяет GitHub и ставит новую версию сам. Пока идут проверки контрагентов,
+обновление откладывается до следующего раза. Другой интервал — `sudo UPDATE_INTERVAL=1h bash linux/autoupdate-on.sh`.
+
+| Действие | Команда |
+|---|---|
+| Журнал обновлений | `journalctl -u counterparty-checker-update -n 50` |
+| Отключить | `sudo bash linux/autoupdate-off.sh` |
 
 ---
 

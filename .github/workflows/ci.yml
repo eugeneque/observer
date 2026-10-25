@@ -1,0 +1,39 @@
+# Проверка каждой версии. Серверы с linux/update.sh ставят только коммиты, на которых она прошла.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Зависимости
+        run: pip install -r requirements.txt
+
+      - name: Синтаксис Python
+        run: python -m compileall -q app scripts run.py
+
+      - name: Сервис запускается и отвечает
+        run: |
+          python run.py --port 8010 &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8010/health && exit 0
+            sleep 1
+          done
+          echo "Сервис не ответил на /health" >&2
+          exit 1
+
+      - name: Скрипты Linux
+        run: |
+          for f in linux/*.sh; do bash -n "$f"; done
+          shellcheck -S error linux/*.sh

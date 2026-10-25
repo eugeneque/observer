@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Общие переменные для скриптов linux/*.sh (подключается через source, сам не запускается)
 set -euo pipefail
 
@@ -12,12 +13,15 @@ UNIT="/etc/systemd/system/$SERVICE.service"
 export PLAYWRIGHT_BROWSERS_PATH=0
 export PYTHONIOENCODING=utf-8
 
-# Порт из .env (как его читает run.py), по умолчанию 8010
-env_port() {
-  local p=""
-  [ -f "$ROOT/.env" ] && p="$(grep -E '^[[:space:]]*PORT[[:space:]]*=' "$ROOT/.env" | tail -n1 | cut -d= -f2- | tr -d ' "\r')"
-  echo "${p:-8010}"
+# Значение из .env:  env_get ИМЯ [по умолчанию]
+env_get() {
+  local v=""
+  [ -f "$ROOT/.env" ] && v="$(grep -E "^[[:space:]]*$1[[:space:]]*=" "$ROOT/.env" | tail -n1 | cut -d= -f2- | tr -d ' "\r')"
+  echo "${v:-${2:-}}"
 }
+
+# Порт из .env (как его читает run.py), по умолчанию 8010
+env_port() { env_get PORT 8010; }
 
 # sudo, если скрипт запущен не от root
 as_root() {
