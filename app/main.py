@@ -6,9 +6,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse
-from pydantic import AliasChoices, BaseModel, Field
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import FileResponse, RedirectResponse
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from . import runtime_settings, service, store
 from .ai import available_providers, get_provider, routerai, routerai_models
@@ -25,7 +25,22 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-app = FastAPI(title="Проверка контрагентов", version="1.0", lifespan=lifespan)
+ROOT_PATH = "/" + settings.root_path.strip("/") if settings.root_path.strip("/") else ""
+
+app = FastAPI(title="Проверка контрагентов", version="1.0", lifespan=lifespan, root_path=ROOT_PATH)
+
+
+@app.middleware("http")
+async def strip_root_path(request: Request, call_next):
+    # Прокси может пересылать адрес с префиксом (/observer/observer-main/api/v1/checks) или без него —
+    # принимаем оба варианта, иначе 1С получает 404 при том, что запрос до сервера дошёл.
+    path = request.scope["path"]
+    if ROOT_PATH and (path == ROOT_PATH or path.startswith(ROOT_PATH + "/")):
+        if path == ROOT_PATH:  # без завершающего «/» относительные адреса интерфейса не сработают
+            return RedirectResponse(ROOT_PATH + "/")
+        request.scope["path"] = path[len(ROOT_PATH):]
+        request.scope["raw_path"] = request.scope["path"].encode()
+    return await call_next(request)
 
 
 STATIC = Path(__file__).parent / "static"
@@ -47,6 +62,17 @@ class CheckRequest(BaseModel):
                         description="Не брать готовое заключение из кэша")
     wait: int = Field(default=0, ge=0, le=600, validation_alias=AliasChoices("Ожидать", "wait"),
                       description="Сколько секунд ждать результата в этом же запросе")
+
+    @field_validator("inn", "kpp", mode="before")
+    @classmethod
+    def number_to_str(cls, v, info):
+        # 1С может сериализовать реквизиты числом и потерять ведущий ноль (регионы 01–09)
+        if isinstance(v, int) and not isinstance(v, bool):
+            s = str(v)
+            if info.field_name == "kpp":
+                return s.zfill(9)
+            return s.zfill(10) if len(s) <= 10 else s.zfill(12)
+        return v
 
 
 def render(job: dict) -> dict:

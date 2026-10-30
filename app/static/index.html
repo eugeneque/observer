@@ -342,7 +342,7 @@ async function api(path, opts = {}) {
   if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Ошибка сервера " + res.status);
   return data;
 }
-const fileUrl = (id, name) => `/api/v1/checks/${id}/files/${encodeURIComponent(name)}` + (apiKey ? `?key=${encodeURIComponent(apiKey)}` : "");
+const fileUrl = (id, name) => `api/v1/checks/${id}/files/${encodeURIComponent(name)}` + (apiKey ? `?key=${encodeURIComponent(apiKey)}` : "");
 
 /* ---------- Утилиты ---------- */
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -410,7 +410,7 @@ $("#form").addEventListener("submit", async (e) => {
   const body = { inn: $("#inn").value.replace(/\D/g, ""), kpp: $("#kpp").value.trim() || null, force: $("#force").checked, ai: $("#ai").value || null };
   $("#go").disabled = true;
   try {
-    const job = await api("/api/v1/checks", { method: "POST", body: JSON.stringify(body) });
+    const job = await api("api/v1/checks", { method: "POST", body: JSON.stringify(body) });
     if (job["Статус"] === "done" && !body.force) toast("Есть свежее заключение — показываю его");
     $("#force").checked = false;
     openCheck(job.id);
@@ -430,7 +430,7 @@ async function openCheck(id) {
   clearTimeout(pollTimer);
   if (location.hash !== "#" + id) history.replaceState(null, "", "#" + id);
   try {
-    const job = await api(`/api/v1/checks/${id}`);
+    const job = await api(`api/v1/checks/${id}`);
     current = job;
     render(job);
     markActive(id);
@@ -512,7 +512,7 @@ function copyJson() { if (current) copy(JSON.stringify(current, null, 2), "JSON 
 let searchTimer = null;
 async function loadHistory() {
   try {
-    const list = await api(`/api/v1/checks?limit=100&q=${encodeURIComponent($("#q").value.trim())}`);
+    const list = await api(`api/v1/checks?limit=100&q=${encodeURIComponent($("#q").value.trim())}`);
     const h = $("#history");
     if (!list.length) { h.innerHTML = `<div class="empty">${$("#q").value ? "Ничего не найдено" : "Здесь появятся проверенные контрагенты"}</div>`; return; }
     const busy = (j) => j["Статус"] === "queued" || j["Статус"] === "running";
@@ -542,7 +542,7 @@ function removeCheck(id, name) {
 }
 async function commitDelete(id, keepalive = false) {
   pendingDeletes.delete(id);
-  try { await api(`/api/v1/checks/${id}`, { method: "DELETE", keepalive }); }
+  try { await api(`api/v1/checks/${id}`, { method: "DELETE", keepalive }); }
   catch (err) { if (!keepalive) { toast(err.message); loadHistory(); } }
 }
 window.addEventListener("pagehide", () => { for (const [id, t] of pendingDeletes) { clearTimeout(t); commitDelete(id, true); } });
@@ -553,7 +553,7 @@ $("#q").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer
 /* ---------- Состояние сервиса ---------- */
 async function health() {
   try {
-    const h = await (await fetch("/health")).json();
+    const h = await (await fetch("health")).json();
     const sel = $("#ai"), prev = sel.value;
     const def = h.ai.find((a) => a.id === h.default) || (h.default === "auto" ? h.ai[0] : null);
     sel.innerHTML = `<option value="">${def ? "по умолчанию — " + esc(def.name) : "по умолчанию"}</option>` +
@@ -580,12 +580,12 @@ const priceOf = (id) => catalog.find((m) => m.id === id);
 const rub = (x) => x < 1 ? x.toFixed(2).replace(".", ",") + " ₽" : x.toFixed(1).replace(".", ",") + " ₽";
 
 async function loadSettings() {
-  cfg = await api("/api/v1/settings");
+  cfg = await api("api/v1/settings");
   renderSettings();
   return cfg;
 }
 async function saveSettings(patch, msg) {
-  try { cfg = await api("/api/v1/settings", { method: "PUT", body: JSON.stringify(patch) }); renderSettings(); health(); if (msg) toast(msg); }
+  try { cfg = await api("api/v1/settings", { method: "PUT", body: JSON.stringify(patch) }); renderSettings(); health(); if (msg) toast(msg); }
   catch (err) { toast(err.message); }
 }
 
@@ -627,7 +627,7 @@ $("#choices").addEventListener("click", async (e) => {
   const res = document.querySelector(`[data-res="${CSS.escape(b.dataset.test)}"]`);
   b.disabled = true; res.className = "test-res"; res.textContent = "Проверяю…";
   try {
-    const r = await api("/api/v1/settings/test", { method: "POST", body: JSON.stringify({ provider: b.dataset.test }) });
+    const r = await api("api/v1/settings/test", { method: "POST", body: JSON.stringify({ provider: b.dataset.test }) });
     res.className = "test-res " + (r.ok ? "ok" : "bad");
     res.textContent = r.ok ? `Работает · ответ за ${String(r.seconds).replace(".", ",")} с · ${r.model}` : r.error;
   } catch (err) { res.className = "test-res bad"; res.textContent = err.message; }
@@ -690,7 +690,7 @@ async function openSettings() {
   $("#settings").classList.add("show");
   try {
     await loadSettings();
-    if (!catalog.length) { catalog = await api("/api/v1/settings/routerai/catalog"); renderSettings(); }
+    if (!catalog.length) { catalog = await api("api/v1/settings/routerai/catalog"); renderSettings(); }
   } catch (err) { toast(err.message); }
 }
 function closeSettings() { $("#settings").classList.remove("show"); }
