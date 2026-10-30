@@ -25,14 +25,18 @@ main() {
   command -v git >/dev/null 2>&1 || {
     echo "[ОШИБКА] Нет git:  sudo apt install git   или   sudo dnf install git" >&2; exit 1; }
 
-  OWNER="$(stat -c %U "$ROOT" 2>/dev/null || stat -f %Su "$ROOT")"
+  # Владельцы могут различаться: data/ и .env отдаются пользователю службы (autostart-on.sh),
+  # а код и .venv остаются за тем, кто устанавливал. Каждую часть меняем от имени её владельца.
+  OWNER="$(owner_of "$ROOT/.git" 2>/dev/null || owner_of "$ROOT")"
+  VENV_OWNER="$(owner_of "$ROOT/.venv")"
   DATA_DIR="$(env_get DATA_DIR "$ROOT/data")"
   BRANCH="${BRANCH:-main}"
-  as_owner mkdir -p "$DATA_DIR"
+  [ -d "$DATA_DIR" ] || as_owner mkdir -p "$DATA_DIR"
+  DATA_OWNER="$(owner_of "$DATA_DIR")"
 
   # Не запускать два обновления сразу (таймер и вручную)
   if command -v flock >/dev/null 2>&1; then
-    as_owner touch "$DATA_DIR/.update.lock"
+    as_data touch "$DATA_DIR/.update.lock"
     exec 9>>"$DATA_DIR/.update.lock"
     flock -n 9 || { echo "Обновление уже идёт."; exit 0; }
   fi
@@ -98,7 +102,7 @@ main() {
   bk="$(backup)"
   echo "Копия настроек: $bk"
   if [ -n "$old" ] && [ -n "$(g status --porcelain --untracked-files=no)" ]; then
-    g diff HEAD | as_owner tee "$bk/local-changes.diff" >/dev/null
+    g diff HEAD | as_data tee "$bk/local-changes.diff" >/dev/null
     echo "[ВНИМАНИЕ] В коде на сервере были правки — они заменяются версией из GitHub, сохранены в $bk/local-changes.diff"
   fi
 
@@ -136,18 +140,25 @@ main() {
   exit 1
 }
 
-# Команда от имени владельца папки: при запуске от root (таймер, sudo) файлы не должны стать root-овыми
-as_owner() {
-  if [ "$(id -u)" -eq 0 ] && [ "$OWNER" != "root" ]; then
+owner_of() { stat -c %U "$1" 2>/dev/null || stat -f %Su "$1"; }
+
+# Команда от имени пользователя: при запуске от root (таймер, sudo) файлы не должны стать root-овыми
+run_as() {
+  local user="$1"; shift
+  if [ "$(id -u)" -eq 0 ] && [ "$user" != "root" ]; then
     if command -v sudo >/dev/null 2>&1; then
-      sudo -H -u "$OWNER" --preserve-env=PLAYWRIGHT_BROWSERS_PATH,PYTHONIOENCODING,HTTPS_PROXY,HTTP_PROXY,NO_PROXY "$@"
+      sudo -H -u "$user" --preserve-env=PLAYWRIGHT_BROWSERS_PATH,PYTHONIOENCODING,HTTPS_PROXY,HTTP_PROXY,NO_PROXY "$@"
     else
-      runuser -u "$OWNER" -- "$@"
+      runuser -u "$user" -- "$@"
     fi
   else
     "$@"
   fi
 }
+
+as_owner() { run_as "$OWNER" "$@"; }       # код и git
+as_data() { run_as "$DATA_OWNER" "$@"; }   # data/: блокировка, копии, база проверок
+as_venv() { run_as "$VENV_OWNER" "$@"; }   # зависимости в .venv
 
 g() { as_owner git -C "$ROOT" "$@"; }
 
@@ -193,7 +204,7 @@ EOF
 busy_checks() {
   local db="$DATA_DIR/checks.sqlite"
   [ -f "$db" ] || { echo 0; return; }
-  as_owner "$PY" - "$db" 2>/dev/null <<'EOF' || echo 0
+  as_data "$PY" - "$db" 2>/dev/null <<'EOF' || echo 0
 import sqlite3, sys
 c = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
 print(c.execute("SELECT count(*) FROM checks WHERE status IN ('queued', 'running')").fetchone()[0])
@@ -204,22 +215,23 @@ EOF
 backup() {
   local bk
   bk="$DATA_DIR/backups/$(date +%Y%m%d-%H%M%S)"
-  as_owner mkdir -p "$bk"
-  [ -f "$ROOT/.env" ] && as_owner cp -p "$ROOT/.env" "$bk/.env"
-  [ -f "$DATA_DIR/ai_settings.json" ] && as_owner cp -p "$DATA_DIR/ai_settings.json" "$bk/"
+  as_data mkdir -p "$bk"
+  as_data chmod 700 "$bk"
+  # .env может принадлежать другому пользователю — читаем текущим (root), пишем владельцем data/
+  [ -f "$ROOT/.env" ] && as_data tee "$bk/.env" <"$ROOT/.env" >/dev/null
+  [ -f "$DATA_DIR/ai_settings.json" ] && as_data cp -p "$DATA_DIR/ai_settings.json" "$bk/"
   if [ -f "$DATA_DIR/checks.sqlite" ]; then
-    as_owner "$PY" -c 'import sqlite3, sys; sqlite3.connect(sys.argv[1]).backup(sqlite3.connect(sys.argv[2]))' \
+    as_data "$PY" -c 'import sqlite3, sys; sqlite3.connect(sys.argv[1]).backup(sqlite3.connect(sys.argv[2]))' \
       "$DATA_DIR/checks.sqlite" "$bk/checks.sqlite"
   fi
-  as_owner chmod 700 "$bk"
-  ls -1dt "$DATA_DIR"/backups/*/ 2>/dev/null | tail -n +11 | while read -r d; do as_owner rm -rf "$d"; done
+  ls -1dt "$DATA_DIR"/backups/*/ 2>/dev/null | tail -n +11 | while read -r d; do as_data rm -rf "$d"; done
   echo "$bk"
 }
 
 install_deps() {
   echo "Обновляю зависимости ..."
-  as_owner "$PY" -m pip install -q -r "$ROOT/requirements.txt"
-  as_owner "$PY" -m playwright install chromium  # скачает браузер, только если сменилась версия Playwright
+  as_venv "$PY" -m pip install -q -r "$ROOT/requirements.txt"
+  as_venv "$PY" -m playwright install chromium  # скачает браузер, только если сменилась версия Playwright
 }
 
 # Перезапуск службы и ожидание ответа /health. Без службы — подсказка перезапустить вручную.
