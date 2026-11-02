@@ -4,6 +4,7 @@ import json
 import os
 
 from .config import settings
+from .credentials import CREDENTIAL_DEFAULTS
 
 EDITABLE = {
     "ai_provider", "gigachat_auth_key", "gigachat_scope", "gigachat_model",
@@ -16,6 +17,8 @@ _path = settings.data_dir / "ai_settings.json"
 def _apply(values: dict) -> None:
     for k, v in values.items():
         if k in EDITABLE:
+            if k in CREDENTIAL_DEFAULTS and (v is None or (isinstance(v, str) and not v.strip())):
+                v = CREDENTIAL_DEFAULTS[k]
             setattr(settings, k, v)
 
 

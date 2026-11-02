@@ -182,7 +182,7 @@ async def get_settings():
 
 @app.put("/api/v1/settings", dependencies=[Depends(check_token)])
 async def update_settings(upd: SettingsUpdate):
-    """Поле не передано — не меняется; пустая строка у ключа — ключ удаляется."""
+    """Пустой ключ сбрасывается: RouterAI — к встроенному, остальные удаляются."""
     data = upd.model_dump(exclude_none=True)
     if "routerai_models" in data:
         data["routerai_models"] = ",".join(dict.fromkeys(m.strip() for m in data["routerai_models"] if m.strip()))

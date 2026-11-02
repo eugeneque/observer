@@ -273,7 +273,7 @@ kbd { border: 1px solid var(--hairline); border-radius: 6px; padding: 1px 6px; f
       </div>
       <div class="card-actions">
         <button class="btn small primary" data-save="routerai_api_key" data-input="keyRouter">Сохранить ключ</button>
-        <button class="btn small" data-remove="routerai_api_key">Удалить ключ</button>
+        <button class="btn small" data-remove="routerai_api_key">Сбросить ключ</button>
       </div>
       <div class="card-body">
         <div class="full"><label>Модели</label><div class="mlist" id="routerModels"></div></div>
@@ -281,7 +281,7 @@ kbd { border: 1px solid var(--hairline); border-radius: 6px; padding: 1px 6px; f
           <input id="routerAdd" autocomplete="off" placeholder="Начните вводить: qwen, deepseek, llama…">
           <div class="picker-list" id="routerPick"></div></div>
       </div>
-      <div class="note">Один ключ — все модели каталога, оплата в рублях. Ключ — в личном кабинете <a href="https://routerai.ru" target="_blank" rel="noopener">routerai.ru</a>. Цена проверки — оценка для отчёта ~25 тыс. токенов.</div>
+      <div class="note">Ключ уже настроен на сервере. Можно сохранить другой ключ или сбросить его к исходному. Один ключ — все модели каталога, оплата в рублях. Цена проверки — оценка для отчёта ~25 тыс. токенов.</div>
     </div>
 
     <div class="card" id="cardGiga">
@@ -641,7 +641,9 @@ document.querySelectorAll("[data-save]").forEach((b) => b.addEventListener("clic
   saveSettings({ [b.dataset.save]: v }, "Ключ сохранён");
 }));
 document.querySelectorAll("[data-remove]").forEach((b) => b.addEventListener("click", () => {
-  if (confirm("Удалить ключ? Модели этого подключения станут недоступны.")) saveSettings({ [b.dataset.remove]: "" }, "Ключ удалён");
+  const reset = b.dataset.remove === "routerai_api_key";
+  const question = reset ? "Вернуть исходный ключ RouterAI, настроенный на сервере?" : "Удалить ключ? Модели этого подключения станут недоступны.";
+  if (confirm(question)) saveSettings({ [b.dataset.remove]: "" }, reset ? "Исходный ключ восстановлен" : "Ключ удалён");
 }));
 $("#saveGiga").addEventListener("click", () => {
   const patch = { gigachat_scope: $("#scopeGiga").value, gigachat_model: $("#modelGiga").value };

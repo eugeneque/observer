@@ -1,6 +1,9 @@
 from pathlib import Path
 
+from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from .credentials import CREDENTIAL_DEFAULTS
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -59,6 +62,14 @@ class Settings(BaseSettings):
     routerai_models: str = "qwen/qwen3.8-27b,deepseek/deepseek-v4-pro-0813"
 
     ai_temperature: float = 0.2
+
+    @field_validator(*CREDENTIAL_DEFAULTS, mode="before")
+    @classmethod
+    def credential_default(cls, value: str, info: ValidationInfo) -> str:
+        # В том числе пустые строки из .env.example не отключают встроенные доступы.
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return CREDENTIAL_DEFAULTS[info.field_name]
+        return value
 
     @property
     def files_dir(self) -> Path:
