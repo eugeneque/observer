@@ -43,7 +43,11 @@ async def click_and_capture_pdf(ctx: BrowserContext, page: Page, target: Locator
                 return out
             except asyncio.TimeoutError:
                 pass
-            await popup.wait_for_load_state("networkidle")
+            await popup.wait_for_load_state("domcontentloaded")
+            try:  # networkidle может не наступить из-за фоновых запросов
+                await popup.wait_for_load_state("networkidle", timeout=15_000)
+            except Exception:
+                pass
             resp = await popup.request.get(popup.url)
             if "pdf" in (resp.headers.get("content-type") or ""):
                 out.write_bytes(await resp.body())

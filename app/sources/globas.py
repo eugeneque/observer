@@ -53,9 +53,28 @@ async def _kick_other_sessions(page: Page) -> bool:
     return False
 
 
+async def _fill_checked(page: Page, selector: str, value: str) -> None:
+    """Заполняет поле и убеждается, что значение не стёр скрипт формы."""
+    field = page.locator(selector)
+    for _ in range(5):
+        await field.fill(value)
+        await page.wait_for_timeout(300)
+        if await field.input_value() == value:
+            return
+    # Последняя попытка — посимвольный ввод, как у живого пользователя
+    await field.fill("")
+    await field.press_sequentially(value, delay=30)
+
+
 async def _submit_login(page: Page) -> bool:
-    await page.locator("#LoginName").fill(settings.globas_login)
-    await page.locator("#Password").fill(settings.globas_password)
+    # Скрипт формы при инициализации сбрасывает поля — заполнять можно только после неё
+    try:
+        await page.locator("form[data-view=Login][data-login-form-initialized]").wait_for(
+            state="attached", timeout=15_000)
+    except PlaywrightTimeoutError:
+        log.warning("Глобас: форма входа не отметилась как инициализированная, заполняю как есть")
+    await _fill_checked(page, "#LoginName", settings.globas_login)
+    await _fill_checked(page, "#Password", settings.globas_password)
     # Если на форме есть опция «завершить другие сессии при входе» — включаем сразу
     opt = page.get_by_role("checkbox", name=KICK_PATTERN)
     if await opt.count() and await opt.first.is_visible():
@@ -107,27 +126,56 @@ async def ensure_login(page: Page) -> None:
             f"python -m scripts.login globas). Отладка: {dump}")
 
 
+SEARCH_PATH = "/ru-RU/CompanySearch/Result?query={inn}&Country=RU"
+# Старый адрес публичного поиска: из кабинета он уводит на публичный сайт. Он мог остаться в .env.
+LEGACY_SEARCH_PATHS = {"/search/rezultaty-poiska?query={inn}"}
+
+FIND_RESULT_JS = """(inn) => {
+    // Ссылка на карточку компании с подписью «ИНН: <inn>». Путь без параметров — сама компания
+    // (параметры searchId/companyId указывают на строку выдачи, в которой она упомянута).
+    const norm = s => (s || '').replace(/\\s+/g, ' ');
+    for (const a of document.querySelectorAll('a[href*="/company/getcompany/" i]')) {
+        if (norm(a.innerText).includes('ИНН: ' + inn)) {
+            const u = new URL(a.href); u.search = ''; return u.href;
+        }
+    }
+    return null;
+}"""
+
+
+async def _goto(page: Page, url: str) -> None:
+    """Переход без ожидания networkidle: у Глобаса фоновые запросы не прекращаются,
+    и networkidle может не наступить вовсе. Ждём DOM, затем коротко — затишья сети."""
+    await page.goto(url, wait_until="domcontentloaded", timeout=90_000)
+    try:
+        await page.wait_for_load_state("networkidle", timeout=10_000)
+    except PlaywrightTimeoutError:
+        pass
+
+
 async def open_company(page: Page, inn: str) -> None:
-    await page.goto(_url(settings.globas_search_path.format(inn=inn)), wait_until="networkidle")
+    path = settings.globas_search_path.strip()
+    if not path or path in LEGACY_SEARCH_PATHS:
+        path = SEARCH_PATH
+    await _goto(page, _url(path.format(inn=inn)))
     await _require_session(page)
-    # Ищем ссылку внутри блока результата, в тексте которого есть ИНН
-    href = await page.evaluate(
-        """(inn) => {
-            for (const a of document.querySelectorAll('a[href]')) {
-                const h = a.getAttribute('href');
-                if (!h || h.startsWith('#') || /search|poisk/i.test(h)) continue;
-                let el = a;
-                for (let i = 0; i < 5 && el; i++, el = el.parentElement) {
-                    if ((el.innerText || '').includes(inn)) return a.href;
-                }
-            }
-            return null;
-        }""", inn)
+    # Результаты подгружаются скриптом: ждём ссылку на карточку с подписью «ИНН: <inn>»
+    href = None
+    for _ in range(60):
+        href = await page.evaluate(FIND_RESULT_JS, inn)
+        if href or await page.get_by_text("Ничего не нашлось").count():
+            break
+        await page.wait_for_timeout(500)
     if not href:
         dump = await debug_dump(page, "globas_search")
         raise SourceError(f"Глобас: компания с ИНН {inn} не найдена в результатах поиска. Отладка: {dump}")
-    await page.goto(href, wait_until="networkidle")
+    await _goto(page, href)
     await _require_session(page)
+    # Карточка дорисовывается скриптом: даём появиться кнопке «Выгрузка»
+    try:
+        await page.get_by_text("Выгрузка", exact=True).first.wait_for(state="visible", timeout=30_000)
+    except PlaywrightTimeoutError:
+        log.warning("Глобас: кнопка «Выгрузка» не появилась за 30 с на %s", page.url)
 
 
 async def export_max_pdf(ctx: BrowserContext, page: Page, out: Path) -> Path | None:

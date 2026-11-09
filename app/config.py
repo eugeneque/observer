@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     globas_login: str = ""
     globas_password: str = ""
     # Шаблон страницы поиска внутри системы; {inn} подставляется
-    globas_search_path: str = "/search/rezultaty-poiska?query={inn}"
+    globas_search_path: str = "/ru-RU/CompanySearch/Result?query={inn}&Country=RU"
     # Необязательно: селекторы Playwright через «;», которые нужно нажать на карточке компании,
     # чтобы получить PDF (последний клик запускает скачивание). Пусто — автоматический поиск кнопки.
     globas_export_steps: str = ""
