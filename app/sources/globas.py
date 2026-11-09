@@ -131,11 +131,22 @@ SEARCH_PATH = "/ru-RU/CompanySearch/Result?query={inn}&Country=RU"
 LEGACY_SEARCH_PATHS = {"/search/rezultaty-poiska?query={inn}"}
 
 FIND_RESULT_JS = """(inn) => {
-    // Ссылка на карточку компании с подписью «ИНН: <inn>». Путь без параметров — сама компания
-    // (параметры searchId/companyId указывают на строку выдачи, в которой она упомянута).
+    // Ссылка на карточку компании, рядом с которой стоит «ИНН: <inn>». Путь без параметров —
+    // сама компания (параметры searchId/companyId указывают на строку выдачи).
+    // Выдача: <a class="entity-item__name">Название</a> в блоке .entity-item, ИНН — отдельной
+    // строкой «ИНН: <strong>…</strong>» в том же блоке. ИНН руководителя/учредителя — внутри
+    // ссылок на людей, их не учитываем, иначе 10-значный ИНН может «совпасть» с куском 12-значного.
     const norm = s => (s || '').replace(/\\s+/g, ' ');
-    for (const a of document.querySelectorAll('a[href*="/company/getcompany/" i]')) {
-        if (norm(a.innerText).includes('ИНН: ' + inn)) {
+    const re = new RegExp('ИНН: ?' + inn + '(?!\\\\d)');
+    const ownText = el => {
+        const c = el.cloneNode(true);
+        c.querySelectorAll('a').forEach(x => x.remove());
+        return norm(c.textContent);
+    };
+    const links = [...document.querySelectorAll('a[href*="/company/getcompany/" i]')];
+    for (const a of links) {
+        const box = a.closest('.entity-item, .entities-list__item, li, tr') || a.parentElement;
+        if (re.test(norm(a.innerText)) || (box && re.test(ownText(box)))) {
             const u = new URL(a.href); u.search = ''; return u.href;
         }
     }
