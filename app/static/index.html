@@ -188,6 +188,20 @@ kbd { border: 1px solid var(--hairline); border-radius: 6px; padding: 1px 6px; f
 .picker-item { padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
 .picker-item:hover, .picker-item.hl { background: var(--accent-soft); }
 .picker-item .s { color: var(--muted); white-space: nowrap; }
+/* Обновление */
+.badge-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-left: 6px; vertical-align: middle; }
+.modal.narrow { max-width: 620px; }
+.ver { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); margin-top: 20px; }
+.ver div { padding: 14px 16px 14px 0; min-width: 0; }
+.ver div + div { padding-left: 16px; border-left: 1px solid var(--hairline); }
+.ver dt { font-size: 12px; color: var(--muted); }
+.ver dd { margin: 2px 0 0; font-weight: 600; }
+.ver .s { font-size: 13px; color: var(--muted); font-weight: 400; overflow-wrap: anywhere; }
+.upd-msg { margin-top: 18px; font-size: 14px; display: flex; gap: 8px; align-items: center; }
+.upd-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 20px; }
+.upd-actions label { color: var(--muted); font-size: 14px; display: inline-flex; gap: 8px; align-items: center; cursor: pointer; }
+.upd-log { white-space: pre-wrap; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; background: var(--surface); padding: 14px 16px; border-radius: 12px; max-height: 320px; overflow-y: auto; margin: 18px 0 0; }
+@media (max-width: 600px) { .ver { grid-template-columns: 1fr; } .ver div + div { padding-left: 0; border-left: 0; border-top: 1px solid var(--hairline); } }
 @media (max-width: 600px) { .modal { padding: 20px 16px; } .card-body { grid-template-columns: 1fr; } }
 
 @media (max-width: 900px) {
@@ -220,6 +234,7 @@ kbd { border: 1px solid var(--hairline); border-radius: 6px; padding: 1px 6px; f
       <button class="btn small" id="saveKey">Сохранить</button>
     </div>
     <span id="svc"><span class="dot"></span> подключение…</span>
+    <button class="btn small" id="openUpdate" type="button">Обновить</button>
     <button class="btn small" id="openSettings" type="button">Настройки ИИ</button>
   </div>
 </header>
@@ -315,6 +330,22 @@ kbd { border: 1px solid var(--hairline); border-radius: 6px; padding: 1px 6px; f
         <button class="btn small" data-remove="anthropic_api_key">Удалить ключ</button>
       </div>
     </div>
+  </div>
+</div>
+<div class="overlay" id="update" role="dialog" aria-modal="true" aria-labelledby="updateTitle">
+  <div class="modal narrow">
+    <div class="modal-head"><h2 id="updateTitle">Обновление</h2><button class="close" id="closeUpdate" aria-label="Закрыть">×</button></div>
+    <dl class="ver">
+      <div><dt>Установлена</dt><dd id="verCur">—</dd></div>
+      <div><dt>Последняя на GitHub</dt><dd id="verNew">—</dd></div>
+    </dl>
+    <div class="upd-msg" id="updMsg"></div>
+    <div class="upd-actions">
+      <button class="btn small primary" id="runUpdate" type="button">Обновить сейчас</button>
+      <label><input type="checkbox" id="updForce"> Принудительно — даже если проверки CI не пройдены</label>
+      <button class="linkbtn" id="refreshUpdate" type="button">Проверить снова</button>
+    </div>
+    <pre class="upd-log" id="updLog" hidden></pre>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -701,6 +732,79 @@ $("#closeSettings").addEventListener("click", closeSettings);
 $("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") closeSettings(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#settings").classList.contains("show")) closeSettings(); });
 
+/* ---------- Обновление ---------- */
+const CI = { success: "проверки CI пройдены", failure: "проверки CI не пройдены", pending: "проверки CI ещё идут",
+  none: "проверок CI нет", unknown: "статус CI неизвестен" };
+let upd = null, updTimer = null, updFrom = null;
+const verHtml = (v, ci) => v
+  ? `${esc(v.short)} · ${fmtDate(v.date)}<div class="s">${esc(v.subject)}${ci ? " · " + esc(CI[v.ci] || v.ci) : ""}</div>`
+  : "—";
+function renderUpdate() {
+  const u = upd, busy = u.phase !== "idle";
+  $("#verCur").innerHTML = verHtml(u.current);
+  $("#verNew").innerHTML = u.available ? (u.latest ? verHtml(u.latest, true) : "нет связи с GitHub") : "—";
+  let dot = "ok", msg;
+  if (!u.available) { dot = "warn"; msg = u.hint; }
+  else if (u.phase === "queued") { dot = "run"; msg = "Запрос отправлен, обновление начинается…"; }
+  else if (u.phase === "running") { dot = "run"; msg = "Идёт обновление. Сервис перезапустится — страница обновится сама."; }
+  else if (updFrom && u.last && u.last.state === "finished") {
+    dot = u.last.code === 0 ? "ok" : "bad";
+    msg = u.last.code !== 0 ? "Обновление не выполнено — подробности в журнале ниже."
+      : u.current && u.current.sha !== updFrom ? "Обновлено." : "Новой версии не установлено — см. журнал.";
+  }
+  else if (u.outdated) {
+    dot = u.latest.ci === "failure" ? "bad" : "warn";
+    msg = "Доступна новая версия." + (u.latest.ci === "failure" ? " Проверки CI на ней не прошли — обновить можно только принудительно." : "");
+  }
+  else if (u.latest) msg = "Установлена последняя версия.";
+  else msg = "Не удалось узнать последнюю версию.";
+  if (u.available && u.busy && !busy) msg += ` Сейчас выполняется проверок: ${u.busy} — после перезапуска они начнут текущий этап заново.`;
+  $("#updMsg").innerHTML = `<span class="dot ${dot}"></span><span>${esc(msg)}</span>`;
+  $("#runUpdate").disabled = !u.available || busy;
+  $("#runUpdate").textContent = busy ? "Обновляется…" : "Обновить сейчас";
+  $("#updLog").hidden = !u.log.length || !(busy || updFrom);
+  if (!$("#updLog").hidden) { $("#updLog").textContent = u.log.join("\n"); $("#updLog").scrollTop = 1e9; }
+  $("#openUpdate").innerHTML = "Обновить" + (u.available && u.outdated ? '<span class="badge-dot" title="Доступна новая версия"></span>' : "");
+}
+async function loadUpdate(refresh = false) {
+  upd = await api("api/v1/update" + (refresh ? "?refresh=1" : ""));
+  renderUpdate();
+  return upd;
+}
+function watchUpdate() {
+  clearTimeout(updTimer);
+  updTimer = setTimeout(async () => {
+    let u = null;
+    try { u = await loadUpdate(); } catch (e) { $("#updMsg").innerHTML = `<span class="dot run"></span><span>Сервис перезапускается…</span>`; }
+    if (!u || u.phase !== "idle") return watchUpdate();
+    if (u.last && u.last.code === 0 && u.current && u.current.sha !== updFrom) {
+      toast("Обновлено до " + u.current.short + " — перезагружаю страницу");
+      setTimeout(() => location.reload(), 1500);
+    }
+  }, 2000);
+}
+async function openUpdate() {
+  $("#update").classList.add("show");
+  try { await loadUpdate(true); if (upd.phase !== "idle") { updFrom = updFrom || (upd.current && upd.current.sha); watchUpdate(); } }
+  catch (err) { $("#updMsg").innerHTML = `<span class="dot bad"></span><span>${esc(err.message)}</span>`; }
+}
+function closeUpdate() { $("#update").classList.remove("show"); }
+$("#openUpdate").addEventListener("click", openUpdate);
+$("#closeUpdate").addEventListener("click", closeUpdate);
+$("#update").addEventListener("click", (e) => { if (e.target.id === "update") closeUpdate(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#update").classList.contains("show")) closeUpdate(); });
+$("#refreshUpdate").addEventListener("click", () => loadUpdate(true).catch((err) => toast(err.message)));
+$("#runUpdate").addEventListener("click", async () => {
+  const force = $("#updForce").checked;
+  if (upd.busy && !confirm(`Сейчас выполняется проверок: ${upd.busy}. Сервис перезапустится, и они начнут текущий этап заново. Обновить?`)) return;
+  try {
+    updFrom = upd.current && upd.current.sha;
+    await api("api/v1/update", { method: "POST", body: JSON.stringify({ force }) });
+    upd.phase = "queued"; upd.log = []; renderUpdate();
+    watchUpdate();
+  } catch (err) { updFrom = null; toast(err.message); }
+});
+
 /* ---------- Пустое состояние и горячие клавиши ---------- */
 function intro() {
   $("#view").innerHTML = `<div class="result">
@@ -721,6 +825,7 @@ window.addEventListener("hashchange", () => { const id = location.hash.slice(1);
 
 health();
 loadHistory();
+loadUpdate().catch(() => {});
 if (location.hash.length > 1) openCheck(location.hash.slice(1)); else intro();
 </script>
 </body>

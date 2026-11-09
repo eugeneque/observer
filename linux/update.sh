@@ -6,33 +6,40 @@
 # в git, а перед обновлением дополнительно копируются в data/backups/.
 #   --force  обновить, даже если CI не пройден или ещё идёт, и переустановить зависимости
 #   --auto   режим таймера (autoupdate-on.sh): пока идут проверки — отложить обновление
+#   --ui     запуск по кнопке «Обновить» в интерфейсе (служба counterparty-checker-update-ui, см. common.sh):
+#            параметры берутся из data/.update-request, вывод пишется в data/update.log
 # REPO_URL, BRANCH — откуда брать обновления (по умолчанию origin или github.com/eugeneque/observer, main).
 # Папка, установленная из архива, при первом запуске подключается к репозиторию.
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 # Весь сценарий в функции: bash прочитает его целиком до того, как git заменит этот файл новой версией
+# Глобальные, а не local: их читает обработчик выхода в режиме --ui
+force=0 auto=0 ui=0
+
 main() {
-  local force=0 auto=0 a
+  local a
   for a in "$@"; do
     case "$a" in
       --force) force=1 ;;
       --auto) auto=1 ;;
+      --ui) ui=1 ;;
       *) echo "Использование: bash linux/update.sh [--force]" >&2; exit 1 ;;
     esac
   done
 
-  require_venv
-  command -v git >/dev/null 2>&1 || {
-    echo "[ОШИБКА] Нет git:  sudo apt install git   или   sudo dnf install git" >&2; exit 1; }
-
   # Владельцы могут различаться: data/ и .env отдаются пользователю службы (autostart-on.sh),
   # а код и .venv остаются за тем, кто устанавливал. Каждую часть меняем от имени её владельца.
   OWNER="$(owner_of "$ROOT/.git" 2>/dev/null || owner_of "$ROOT")"
-  VENV_OWNER="$(owner_of "$ROOT/.venv")"
-  DATA_DIR="$(env_get DATA_DIR "$ROOT/data")"
+  DATA_DIR="$(data_dir)"
   BRANCH="${BRANCH:-main}"
   [ -d "$DATA_DIR" ] || as_owner mkdir -p "$DATA_DIR"
   DATA_OWNER="$(owner_of "$DATA_DIR")"
+  [ $ui -eq 1 ] && ui_start
+
+  require_venv
+  VENV_OWNER="$(owner_of "$ROOT/.venv")"
+  command -v git >/dev/null 2>&1 || {
+    echo "[ОШИБКА] Нет git:  sudo apt install git   или   sudo dnf install git" >&2; exit 1; }
 
   # Не запускать два обновления сразу (таймер и вручную)
   if command -v flock >/dev/null 2>&1; then
@@ -120,6 +127,7 @@ main() {
     echo
     echo "=== Обновлено: $(describe "$new") ==="
     new_settings_hint "$old"
+    ensure_update_button
     exit 0
   fi
 
@@ -141,6 +149,33 @@ main() {
 }
 
 owner_of() { stat -c %U "$1" 2>/dev/null || stat -f %Su "$1"; }
+
+# Запуск по кнопке из интерфейса: параметры — из файла-запроса, вывод — в data/update.log,
+# итог — в data/update-status.json (их читает страница, app/updater.py)
+ui_start() {
+  local req="$DATA_DIR/.update-request"
+  grep -qE '"force": *true' "$req" 2>/dev/null && force=1
+  rm -f "$req"
+  ui_status running
+  trap 'ui_finish $?' EXIT
+  exec > >(as_data tee "$DATA_DIR/update.log") 2>&1
+  UI_TEE=$!
+  echo "Обновление из интерфейса, $(date '+%d.%m.%Y %H:%M:%S')$([ $force -eq 1 ] && echo ', принудительно')"
+}
+
+# Итог — в update-status.json; дождаться, пока tee допишет журнал, иначе systemd оборвёт его вместе с юнитом
+ui_finish() {
+  ui_status finished "$1"
+  exec >&- 2>&-
+  wait "$UI_TEE" 2>/dev/null || true
+}
+
+ui_status() {
+  local status="$DATA_DIR/update-status.json"
+  printf '{"state": "%s", "code": %s, "force": %s, "time": "%s"}\n' "$1" "${2:-null}" \
+    "$([ $force -eq 1 ] && echo true || echo false)" "$(date -Iseconds)" | as_data tee "$status.tmp" >/dev/null
+  as_data mv -f "$status.tmp" "$status"
+}
 
 # Команда от имени пользователя: при запуске от root (таймер, sudo) файлы не должны стать root-овыми
 run_as() {
@@ -254,6 +289,16 @@ restart_and_check() {
   echo
   journalctl -u "$SERVICE" -n 30 --no-pager >&2 || true
   return 1
+}
+
+# Серверам, где служба поставлена до появления кнопки «Обновить», юниты для неё добавляются здесь
+ensure_update_button() {
+  [ -f "$UNIT" ] && [ ! -f "/etc/systemd/system/$UI_UPDATE.path" ] || return 0
+  if [ "$(id -u)" -eq 0 ]; then
+    install_update_button && echo "Включена кнопка «Обновить» в интерфейсе."
+  else
+    echo "Чтобы обновлять кнопкой в интерфейсе, выполните один раз:  sudo bash linux/autostart-on.sh"
+  fi
 }
 
 # Параметры, добавленные в .env.example с прежней версии и отсутствующие в .env (значения по умолчанию уже действуют)

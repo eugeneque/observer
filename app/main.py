@@ -10,7 +10,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
-from . import runtime_settings, service, store
+from . import runtime_settings, service, store, updater
 from .ai import available_providers, get_provider, routerai, routerai_models
 from .config import settings
 
@@ -221,6 +221,33 @@ async def test_provider(req: TestRequest):
 @app.get("/api/v1/settings/routerai/catalog", dependencies=[Depends(check_token)])
 async def routerai_catalog():
     return await routerai.catalog()
+
+
+# ---------- Обновление (кнопка в интерфейсе) ----------
+
+@app.get("/api/v1/update", dependencies=[Depends(check_token)])
+async def update_info(refresh: bool = False):
+    ok, hint = updater.available()
+    cur = updater.current()
+    new = await updater.latest(refresh) if ok else None
+    return {"available": ok, "hint": hint, "current": cur, "latest": new,
+            "outdated": updater.outdated(cur, new),
+            "busy": len(store.unfinished()), **updater.state()}
+
+
+class UpdateRequest(BaseModel):
+    force: bool = False
+
+
+@app.post("/api/v1/update", dependencies=[Depends(check_token)])
+async def start_update(req: UpdateRequest):
+    ok, hint = updater.available()
+    if not ok:
+        raise HTTPException(409, hint)
+    if updater.state()["phase"] != "idle":
+        raise HTTPException(409, "Обновление уже идёт")
+    updater.request(req.force)
+    return {"ok": True}
 
 
 @app.get("/", include_in_schema=False)

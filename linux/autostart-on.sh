@@ -16,8 +16,9 @@ RUN_USER="${SERVICE_USER:-${SUDO_USER:-$(stat -c %U "$ROOT")}}"
 PORT="$(env_port)"
 id "$RUN_USER" >/dev/null 2>&1 || { echo "[ОШИБКА] Нет пользователя $RUN_USER" >&2; exit 1; }
 
-mkdir -p "$ROOT/data"
-chown -R "$RUN_USER": "$ROOT/data"
+DATA_DIR="$(data_dir)"
+mkdir -p "$DATA_DIR"
+chown -R "$RUN_USER": "$DATA_DIR"
 [ -f "$ROOT/.env" ] && chown "$RUN_USER": "$ROOT/.env"
 
 echo "Создаю службу $SERVICE (пользователь $RUN_USER, порт $PORT) ..."
@@ -45,6 +46,7 @@ UNIT
 systemctl daemon-reload
 systemctl enable "$SERVICE" >/dev/null
 systemctl restart "$SERVICE"
+install_update_button
 
 # Порт для 1С и браузеров в сети
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
@@ -64,6 +66,7 @@ for _ in $(seq 1 20); do
     echo "Готово. Интерфейс: http://${IP:-localhost}:$PORT/"
     echo "Журнал:      bash linux/logs.sh"
     echo "Управление:  sudo systemctl status|restart|stop $SERVICE"
+    echo "Обновление:  кнопка «Обновить» в интерфейсе или bash linux/update.sh"
     exit 0
   fi
   echo -n "."; sleep 1

@@ -20,6 +20,14 @@ env_get() {
   echo "${v:-${2:-}}"
 }
 
+# Папка данных (DATA_DIR из .env) абсолютным путём
+data_dir() {
+  local d
+  d="$(env_get DATA_DIR "$ROOT/data")"
+  case "$d" in /*) ;; *) d="$ROOT/${d#./}" ;; esac
+  echo "$d"
+}
+
 # Порт из .env (как его читает run.py), по умолчанию 8010
 env_port() { env_get PORT 8010; }
 
@@ -36,4 +44,44 @@ require_venv() {
     echo "Сначала запустите установку:  bash linux/install.sh" >&2
     exit 1
   fi
+}
+
+# Кнопка «Обновить» в интерфейсе. Служба работает без прав root и перезапустить себя не может, поэтому
+# она только кладёт файл-запрос data/.update-request, а юнит .path (от root) замечает его и запускает
+# update.sh --ui. Ставится вместе со службой (autostart-on.sh), снимается autostart-off.sh.
+UI_UPDATE="$SERVICE-update-ui"
+
+install_update_button() {
+  local data
+  data="$(data_dir)"
+  cat > "/etc/systemd/system/$UI_UPDATE.service" <<UNIT
+[Unit]
+Description=Обновление сервиса проверки контрагентов по кнопке в интерфейсе
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash $ROOT/linux/update.sh --ui
+ExecStopPost=/bin/rm -f $data/.update-request
+TimeoutStartSec=30min
+UNIT
+  cat > "/etc/systemd/system/$UI_UPDATE.path" <<UNIT
+[Unit]
+Description=Запрос обновления из интерфейса сервиса проверки контрагентов
+
+[Path]
+PathExists=$data/.update-request
+Unit=$UI_UPDATE.service
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable --now "$UI_UPDATE.path" >/dev/null
+}
+
+remove_update_button() {
+  systemctl disable --now "$UI_UPDATE.path" 2>/dev/null || true
+  rm -f "/etc/systemd/system/$UI_UPDATE.path" "/etc/systemd/system/$UI_UPDATE.service"
 }

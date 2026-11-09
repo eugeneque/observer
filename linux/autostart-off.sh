@@ -9,6 +9,7 @@ PORT="$(env_port)"
 
 systemctl disable --now "$SERVICE" 2>/dev/null || true
 rm -f "$UNIT"
+remove_update_button
 systemctl daemon-reload
 
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
