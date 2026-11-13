@@ -22,7 +22,9 @@ KICK_PATTERN = re.compile(
     r"(завершить|разорвать|закрыть|прервать|сбросить).{0,30}(сесси|сеанс)|войти\s+и\s+завершить",
     re.I)
 KICK_CONFIRM_TEXTS = ["Да", "Подтвердить", "Продолжить", "Завершить", "OK", "ОК"]
-PUBLIC_SITE_MARKER = "a.main-nav__btn[href*='/Home/Login'], a.main-nav__login[href*='/Home/Login']"
+# Боковая панель «Выгрузка разделов справки»
+PANEL_SELECTOR = ".aside-modal .export-company-details-modal-header"
+PUBLIC_SITE_MARKER ="a.main-nav__btn[href*='/Home/Login'], a.main-nav__login[href*='/Home/Login']"
 
 
 def _url(path: str) -> str:
@@ -197,15 +199,21 @@ async def export_max_pdf(ctx: BrowserContext, page: Page, out: Path) -> Path | N
         .or_(page.get_by_role("link", name="Выгрузка", exact=True))
         .or_(page.get_by_text("Выгрузка", exact=True))
     ).locator("visible=true").first
-    if not await opener.count():
-        log.warning("Глобас: кнопка «Выгрузка» не найдена на %s", page.url)
-        return None
-    await opener.click()
-    try:
-        await page.get_by_text("Выгрузка разделов справки").wait_for(timeout=10_000)
-    except Exception:
-        log.warning("Глобас: панель «Выгрузка разделов справки» не открылась на %s", page.url)
-        return None
+    panel = page.get_by_text("Выгрузка разделов справки").or_(
+        page.locator(PANEL_SELECTOR)).locator("visible=true").first
+    # Панель может быть уже открыта (Глобас запоминает её состояние): тогда она перекрывает
+    # кнопку и клик по ней виснет. Открываем только если панели ещё нет.
+    if not await panel.count():
+        if not await opener.count():
+            log.warning("Глобас: кнопка «Выгрузка» не найдена на %s", page.url)
+            return None
+        if await opener.get_attribute("aria-pressed") != "true":
+            await opener.click(timeout=15_000)
+        try:
+            await panel.wait_for(timeout=10_000)
+        except Exception:
+            log.warning("Глобас: панель «Выгрузка разделов справки» не открылась на %s", page.url)
+            return None
     manual = page.get_by_text("Выбрать вручную", exact=True)
     if await manual.count() and await manual.first.is_visible():
         await manual.first.click()
@@ -249,18 +257,21 @@ async def export_pdf(ctx: BrowserContext, page: Page, out: Path) -> Path:
     else:
         for text in EXPORT_TEXTS:
             btn = page.get_by_role("button", name=text).or_(page.get_by_role("link", name=text)).first
-            if not await btn.count() or not await btn.is_visible():
-                continue
-            result = await click_and_capture_pdf(ctx, page, btn, out, timeout_ms=10_000)
-            if result and is_pdf(result):
-                return result
-            # Кнопка могла открыть диалог выбора формата/разделов
-            for confirm in CONFIRM_TEXTS:
-                c = page.get_by_role("button", name=confirm).or_(page.get_by_text(confirm, exact=True)).last
-                if await c.count() and await c.is_visible():
-                    result = await click_and_capture_pdf(ctx, page, c, out, timeout_ms=180_000)
-                    if result and is_pdf(result):
-                        return result
+            try:
+                if not await btn.count() or not await btn.is_visible():
+                    continue
+                result = await click_and_capture_pdf(ctx, page, btn, out, timeout_ms=10_000)
+                if result and is_pdf(result):
+                    return result
+                # Кнопка могла открыть диалог выбора формата/разделов
+                for confirm in CONFIRM_TEXTS:
+                    c = page.get_by_role("button", name=confirm).or_(page.get_by_text(confirm, exact=True)).last
+                    if await c.count() and await c.is_visible():
+                        result = await click_and_capture_pdf(ctx, page, c, out, timeout_ms=180_000)
+                        if result and is_pdf(result):
+                            return result
+            except PlaywrightTimeoutError as e:
+                log.warning("Глобас: кнопка «%s» не нажалась: %s", text, str(e).splitlines()[0])
     dump = await debug_dump(page, "globas_export")
     raise SourceError(
         "Глобас: не удалось скачать PDF. Укажите последовательность кликов в GLOBAS_EXPORT_STEPS "

@@ -27,7 +27,7 @@ async def click_and_capture_pdf(ctx: BrowserContext, page: Page, target: Locator
     for p in ctx.pages:
         p.on("download", on_download)
     try:
-        await target.click()
+        await target.click(timeout=20_000)
         done, _ = await asyncio.wait({got_download, got_popup}, timeout=timeout_ms / 1000,
                                      return_when=asyncio.FIRST_COMPLETED)
         if got_download in done:

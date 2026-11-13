@@ -84,8 +84,18 @@ class RouterAIProvider(AIProvider):
                         403: "доступ к модели запрещён", 404: "модель не найдена в каталоге",
                         429: "превышен лимит запросов, повторите позже"}.get(r.status_code, r.text[:300])
                 raise RuntimeError(f"RouterAI ({r.status_code}): {hint}")
-            data = r.json()
-        text = data["choices"][0]["message"].get("content") or ""
+            try:
+                data = r.json()
+            except ValueError:
+                raise RuntimeError(f"RouterAI вернул не JSON: {r.text[:300]}")
+        # Ошибка провайдера модели может прийти с кодом 200: {"error": {...}} без "choices"
+        choices = data.get("choices") or []
+        if not choices:
+            err = data.get("error")
+            msg = (err.get("message") if isinstance(err, dict) else err) or str(data)[:300]
+            raise RuntimeError(f"RouterAI: модель не вернула ответ — {msg}. Повторите проверку "
+                               "или выберите другую модель")
+        text = (choices[0].get("message") or {}).get("content") or ""
         text = re.sub(r"(?s)<think>.*?</think>", "", text).strip()  # если рассуждения пришли в тексте
         if not text:
             raise RuntimeError("RouterAI вернул пустой ответ (возможно, не хватило max_tokens на рассуждения)")
